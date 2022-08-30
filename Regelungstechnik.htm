@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+</head>
+<style>
+    .numberinput {
+        width: 2.5em;
+        font-size: 0.66em;
+        background-color: #EEE;
+        border: none;
+    }
+
+    .numberinput:hover {
+        background-color: #DDD;
+    }
+
+    .numberinput::before {
+        content: "("
+    }
+
+    .numberinput::after {
+        content: ""
+    }
+
+    #equation {
+        font-size: 2rem;
+    }
+
+    .actionbutton {
+        border-radius: 1em;
+        border: none;
+        background-color: #EEE;
+        color: #666;
+    }
+
+    .actionbutton:hover {
+        background-color: #DDD;
+    }
+
+
+</style>
+<body style="padding: 0; margin: 0;">
+
+<div id="templateT" style="display: none">
+    <div style="display: inline-block">
+        (<input type="number" value="1" step="0.1" onchange="update()" class="numberinput TT">s&nbsp;+&nbsp;1)
+        <sup>
+            <button class="actionbutton" onclick="remove(this)">X</button>
+        </sup>
+        <span class="muldot"> · </span>
+    </div>
+</div>
+
+<div id="templateDampedT" style="display: none">
+    <div style="display: inline-block">
+        (<input type="number" value="1" step="0.1" onchange="update()" class="numberinput DampedTT"><sup>2</sup>s<sup>2</sup>
+         +&nbsp;2<input type="number" value="1" step="0.1" onchange="update()" class="numberinput DampedTd">Ts + 1)
+        <sup>
+            <button class="actionbutton" onclick="remove(this)">X</button>
+        </sup>
+        <span class="muldot"> · </span>
+    </div>
+</div>
+
+
+<div style="position: absolute; left: 0; right: 40%; top: 0; bottom: 0">
+    <div id="equation" style="display: inline-block; vertical-align: top;">
+        <div style="margin-top: 1em; display: inline-block; vertical-align: top;">
+            G(s) =
+        </div>
+        <div style="display: inline-block">
+            <div style="text-align: center">
+                <input type="number" id="V" step="0.1" class="numberinput" onchange="update()" value="1">
+            </div>
+            <div style="background-color: black; margin-top: 0.2em; margin-bottom: 0.2em; height: 0.1em"></div>
+            <div style="text-align: center">
+                s<sup><input type="number" id="q" step="1" class="numberinput" onchange="update()" value="0"></sup>
+            </div>
+        </div>
+        <div style="margin-top: 1em; display: inline-block; vertical-align: top;"> · </div>
+        <div id="division" style="display: inline-block">
+            <div id="dividend" style="text-align: center">
+                <div class="insertBefore" style="display: none"></div>
+                <button class="actionbutton" onclick="addT(this)">new T</button><button class="actionbutton" onclick="addDampedT(this)">new dT</button>
+            </div>
+            <div style="background-color: black; margin-top: 0.2em; margin-bottom: 0.2em; height: 0.1em"></div>
+            <div id="divisor" style="text-align: center">
+                <div style="display: inline-block">
+                    (<input type="number" step="0.1" value="1" onchange="update()" class="numberinput TT">s&nbsp;+&nbsp;1)
+                    <sup>
+                        <button class="actionbutton" onclick="remove(this)">X</button>
+                    </sup>
+                    <span class="muldot"> · </span>
+                </div>
+                <div class="insertBefore" style="display: none"></div>
+                <button class="actionbutton" onclick="addT(this)">new T</button><button class="actionbutton" onclick="addDampedT(this)">new dT</button>
+            </div>
+        </div>
+    </div>
+    <br>
+    <br>
+</div>
+<div style="position: absolute; left: 60%; right: 0; top: 0; bottom: 0">
+    <canvas id="myChart"></canvas>
+</div>
+</body>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+
+    xLabels = [];
+    dummyData = [];
+    steps = 1000;
+    samplingHz = 100.0;
+    for (let i = 0; i < steps; ++i) {
+        xLabels.push(Number((i / samplingHz).toFixed(2)));
+        dummyData.push(1);
+    }
+
+    const myChart = new Chart(document.getElementById('myChart'), {
+        type: 'line',
+        data: {
+            labels: xLabels,
+            datasets: [{
+                label: 'Sprungantwort',
+                data: dummyData,
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                borderColor: 'rgba(255, 99, 132, 1)',
+                borderWidth: 3
+            }]
+        },
+        options: {
+            scales: {
+                x: {
+                    title: {
+                        text: "Time t in seconds [s]",
+                        display: true
+                    }
+                },
+                y: {
+                    title: {
+                        text: "y(t)",
+                        display: true
+                    }
+                },
+            },
+            elements: {
+                point: {
+                    radius: 0
+                }
+            }
+        }
+    });
+
+    class Polynom {
+        constructor(exponents) {
+            this.exponents = exponents;
+        }
+
+        mul(b) {
+            let out = new Polynom({});
+            for (let keyB in b.exponents) {
+                let summand = new Polynom({});
+                for (let keyThis in this.exponents) {
+                    summand.exponents[parseInt(keyThis) + parseInt(keyB)] = this.exponents[keyThis] * b.exponents[keyB];
+                }
+                out = out.add(summand);
+            }
+
+            return out;
+        }
+
+        add(b) {
+            let out = new Polynom({});
+            for (let keyThis in this.exponents) {
+                out.exponents[keyThis] = this.exponents[keyThis];
+
+                if (keyThis in b.exponents) {
+                    out.exponents[keyThis] += b.exponents[keyThis];
+                }
+            }
+
+            for (let keyB in b.exponents) {
+                if (!(keyB in this.exponents)) {
+                    out.exponents[keyB] = b.exponents[keyB];
+                }
+            }
+
+            return out;
+        }
+
+        substitute(b) {
+            // only works if this is a polynom with all exponents being >= 0
+            let out = new Polynom({});
+
+            for (let keyThis in this.exponents) {
+                let summand = b;
+                if (keyThis > 0) {
+                    for (let i = 0; i < keyThis - 1; i++) {
+                        summand = summand.mul(b);
+                    }
+                } else {
+                    summand = new Polynom({0: 1});
+                }
+                out = out.add(summand.mul(new Polynom({0: this.exponents[keyThis]})));
+            }
+
+            return out;
+        }
+    }
+
+    function getPolynomFromInputs(element) {
+        const TT = Array.from(element.querySelectorAll('.TT')).map(input => parseFloat(input.value));
+        const dampedTT = Array.from(element.querySelectorAll('.DampedTT')).map(input => parseFloat(input.value));
+        const dampedTd = Array.from(element.querySelectorAll('.DampedTd')).map(input => parseFloat(input.value));
+
+        out = new Polynom({0: 1});
+        for (let i = 0; i < TT.length; i++) {
+            out = out.mul(new Polynom({1: TT[i], 0: 1}));
+        }
+        for (let i = 0; i < dampedTd.length; i++) {
+            out = out.mul(new Polynom({2: dampedTT[i] * dampedTT[i], 1: 2 * dampedTT[i] * dampedTd[i], 0: 1}));
+        }
+
+        return out;
+    }
+
+    function zeitdiskreteSprungantwort(dividendPol, divisorPol, T, outLen) {
+        uZPoly = dividendPol.substitute(new Polynom({0: 1/T, '-1':-1/T}));
+        yZPoly = divisorPol.substitute(new Polynom({0: 1/T, '-1':-1/T}));
+
+        out = new Array(outLen).fill(0);
+        for (let i=0; i<outLen; i++) {
+
+            // sum up right side (input u)
+            for (let key in uZPoly.exponents) {
+                let iZ = i + parseInt(key);
+                let signal = 1;
+                if (iZ <= 0) {
+                    signal = 0;
+                }
+                out[i] += signal * uZPoly.exponents[key];
+            }
+
+            // sum up left side (output y without y(i))
+            let yCoeff = 1;
+            for (let key in yZPoly.exponents) {
+                if (parseInt(key) === 0) {
+                    yCoeff = yZPoly.exponents[key];
+                    continue;
+                }
+
+                let iZ = i + parseInt(key);
+                let signal = 1;
+                if (iZ < 0) {
+                    signal = 0;
+                }
+                else {
+                    signal = out[iZ];
+                }
+
+                // here '-=' because we move it to the right side to solve for y(i)
+                out[i] -= signal * yZPoly.exponents[key];
+            }
+
+            // Divide by coefficient of y(i)
+            out[i] /= yCoeff;
+
+        }
+        return out;
+    }
+
+    function update() {
+        // collect data from inputs
+        let dividendPol = getPolynomFromInputs(document.getElementById('dividend'));
+        let divisorPol = getPolynomFromInputs(document.getElementById('divisor'));
+        const V = document.getElementById('V').value;
+        const q = document.getElementById('q').value;
+
+        dividendPol = dividendPol.mul(new Polynom({0: V}));
+        qPoly = new Polynom({});
+        if (q >= 0) {
+            qPoly.exponents[q] = 1;
+            divisorPol = divisorPol.mul(qPoly);
+        } else {
+            qPoly.exponents[-q] = 1;
+            dividendPol = dividendPol.mul(qPoly);
+        }
+
+        myChart.data.datasets[0].data = zeitdiskreteSprungantwort(dividendPol, divisorPol, 1/samplingHz, steps);
+        myChart.update();
+    }
+
+    function remove(element) {
+        element.parentElement.parentElement.remove();
+        update();
+    }
+
+    function addT(element) {
+        let template = document.getElementById('templateT').children[0].cloneNode(true);
+        let parent = element.parentElement
+        let insertBefore = parent.getElementsByClassName('insertBefore')[0];
+        parent.insertBefore(template, insertBefore);
+        update();
+    }
+
+    function addDampedT(element) {
+        let template = document.getElementById('templateDampedT').children[0].cloneNode(true);
+        let parent = element.parentElement
+        let insertBefore = parent.getElementsByClassName('insertBefore')[0];
+        parent.insertBefore(template, insertBefore);
+        update();
+    }
+
+    update();
+
+
+</script>
+</html>
